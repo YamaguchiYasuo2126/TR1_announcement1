@@ -32,8 +32,6 @@ public:
 	Vector2 velocity_{ 0.0f, 0.0f };
 	// 固定の加速度
 	Vector2 acceleration_{ 0.0f, 0.0f };
-	// 生存時間
-	float lifeTime_ = 2.0f;
 	// 半径
 	float radius_ = 10.0f;
 
@@ -45,12 +43,8 @@ public:
 
 	int isBubble_ = false;
 
-	int isFire_ = false;
-
-	int isFog_ = false;
-
 	// シーン設定を一括変更する関数
-	void SetEmitterConfig(const Vector2& velocity, const Vector2& acceleration, float lifeTime, unsigned int color, const Vector2& emittSize, float minRadius, float maxRadius);
+	void SetEmitterConfig(const Vector2& velocity, const Vector2& acceleration, unsigned int color, const Vector2& emittSize, float minRadius, float maxRadius);
 
 	float minRadius_ = 10.0f;
 	float maxRadius_ = 10.0f;

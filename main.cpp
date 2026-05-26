@@ -7,7 +7,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-const char kWindowTitle[] = "LE2B_28";
+const char kWindowTitle[] = "LE2B_28_ヤマグチ_ヤスオ";
 
 //==========================================
 // 構造体の宣言
@@ -42,7 +42,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	particleEmitter.velocity_ = { 0.0f, 100.0f };
 
-	particleEmitter.acceleration_ = { 0.0f, 980.0f };
+	particleEmitter.acceleration_ = { 0.0f, 1500.0f };
 
 	// 隕石用の変数
 	Vector2 meteorPos = { 100.0f, -100.0f };
@@ -88,7 +88,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 				particleEmitter.isBubble_ = true;
 				// 泡の設定
-				particleEmitter.SetEmitterConfig({ 0.0f, 100.0f }, { 0.0f, 0.4f }, 0x007DC5FF, { 100.0f, 100.0f }, 2.0f, 16.0f);
+				particleEmitter.SetEmitterConfig({ 0.0f, 100.0f }, { 0.0f, 1500.0f }, 0x007DC5FF, { 100.0f, 100.0f }, 20.0f, 20.0f);
 				emitterPos = { 640.0f, 100.0f };
 				break;
 

@@ -115,21 +115,27 @@ void ParticleSystem::Update()
 	// 粒子同士の衝突解決(密度の計算と押し出し)
 	// PBF(流体)のパラメータ
 	// この値をいじるとドロドロ、サラサラなどの質感が変わる
-	float smoothingRadius = 40.0f;    // 粒子がお互いを認識する半径(カーネル半径)
-	float targetDensity = 120000.0f;  // 目標密度(この値に近づくように反発する)
+	float smoothingRadius = 30.0f;    // 粒子がお互いを認識する半径(カーネル半径)
+	float targetDensity = 12000.0f;  // 目標密度(この値に近づくように反発する)
 	float pressureMultiplier = 0.1f;  // 押し出す力の強さ
 
 	// 各粒子の「現在の密度」を計算する
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		{
+			continue;
+		}
 
 		float density = 0.0f;
 
 		// 自分を含む、周りの全ての粒子との距離を測る
 		for (int j = 0; j < kMaxParticles; j++)
 		{
-			if (particles_[j] == nullptr || !particles_[j]->isActive) continue;
+			if (particles_[j] == nullptr || !particles_[j]->isActive)
+			{
+				continue;
+			}
 
 			float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
 			float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
@@ -152,7 +158,10 @@ void ParticleSystem::Update()
 	// 密度を元に「圧力」を計算し、予測位置を押し戻す
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		{
+			continue;
+		}
 
 		Vector2 pushVelocity = { 0.0f, 0.0f };
 
@@ -162,8 +171,15 @@ void ParticleSystem::Update()
 
 		for (int j = 0; j < kMaxParticles; j++)
 		{
-			if (i == j) continue; // 自分自身は弾かない
-			if (particles_[j] == nullptr || !particles_[j]->isActive) continue;
+			if (i == j)
+			{
+				continue; // 自分自身は弾かない
+			}
+
+			if (particles_[j] == nullptr || !particles_[j]->isActive)
+			{
+				continue;
+			}
 
 			float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
 			float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
@@ -172,7 +188,10 @@ void ParticleSystem::Update()
 			if (distSq < smoothingRadius * smoothingRadius)
 			{
 				float dist = sqrtf(distSq);
-				if (dist < 0.0001f) continue; // 完全に重なっている場合のゼロ除算を回避
+				if (dist < 0.0001f)
+				{
+					continue; // 完全に重なっている場合のゼロ除算を回避
+				}
 
 				// 相手の圧力
 				float pressureJ = (particles_[j]->density - targetDensity) * pressureMultiplier;
@@ -180,7 +199,7 @@ void ParticleSystem::Update()
 				// お互いの圧力を平均化する(作用・反作用の法則)
 				float sharedPressure = (pressureI + pressureJ) * 0.5f;
 
-				// マイナスの圧力(引力)をゼロにする
+				// 爆発を防ぐため、圧力の計算結果は「押し出し(プラス)」のみに制限する
 				if (sharedPressure < 0.0f)
 				{
 					sharedPressure = 0.0f;
@@ -190,9 +209,29 @@ void ParticleSystem::Update()
 				float influence = smoothingRadius - dist;
 				float pushForce = sharedPressure * (influence * influence) / particles_[j]->density;
 
-				// 距離ベクトルを正規化して、押し出し力を掛ける
-				pushVelocity.x += (dx / dist) * pushForce;
-				pushVelocity.y += (dy / dist) * pushForce;
+				// 表面張力(引力)の追加
+				float tensionForce = 0.0f;
+				float r = particles_[i]->radius;
+
+				// 表面張力の強さ
+				// 大きくするほど強くまとまり「スライム」や「水銀」のようになる
+				float tensionStrength = 0.36f;
+
+				// 粒子がめり込んでいる時は反発を優先し、
+				// 「半径(r)よりは離れているが、影響半径(smoothingRadius)の範囲内にいる」時だけ引き合う
+				if (dist > r && dist < smoothingRadius)
+				{
+					// 引力として働くようにマイナスの値にする
+					tensionForce = -tensionStrength * influence;
+				}
+
+				// 最終的な移動力の決定
+				// 反発力（＋）と 表面張力（－）を合算する
+				float totalForce = pushForce + tensionForce;
+
+				// 距離ベクトルを正規化して力を掛け、移動量に足し込む
+				pushVelocity.x += (dx / dist) * totalForce;
+				pushVelocity.y += (dy / dist) * totalForce;
 			}
 		}
 
@@ -205,7 +244,10 @@ void ParticleSystem::Update()
 	// 速度の再計算と位置の確定
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		{
+			continue;
+		}
 
 		// 修正された予測位置から、実際の速度を逆算する
 		particles_[i]->velocity.x = (particles_[i]->predictedPosition.x - particles_[i]->position.x) / deltaTime;

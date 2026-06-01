@@ -44,11 +44,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	particleEmitter.acceleration_ = { 0.0f, 1500.0f };
 
-	// 隕石用の変数
-	Vector2 meteorPos = { 100.0f, -100.0f };
-	Vector2 meteorVelocity = { 8.0f, 8.0f };
-	bool isMeteorAlive = false;
-
 	particleEmitter.color_ = 0xE0F7FFFF;
 	const float emitterMoveSpeed = 5.0f;
 
@@ -88,7 +83,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 				particleEmitter.isBubble_ = true;
 				// 泡の設定
-				particleEmitter.SetEmitterConfig({ 0.0f, 100.0f }, { 0.0f, 1500.0f }, 0x007DC5FF, { 100.0f, 100.0f }, 20.0f, 20.0f);
+				particleEmitter.SetEmitterConfig({ 0.0f, 1000.0f }, { 0.0f, 256.0f }, 0x007DC5FF, { 100.0f, 100.0f }, 20.0f, 20.0f);
 				emitterPos = { 640.0f, 100.0f };
 				break;
 
@@ -114,9 +109,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				// 隕石の後ろに出る煙の設定
 				particleEmitter.SetEmitterConfig({ -3.0f, -3.0f }, { 0.0f, 0.0f }, 0x808080FF, { 20.0f, 20.0f }, 10.0f, 20.0f);
 
-				// 隕石の位置をリセット
-				meteorPos = { 100.0f, -100.0f };
-				isMeteorAlive = true;
 				break;
 			}
 			preScene = currentScene; // 更新完了
@@ -151,12 +143,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		{
 			particleSystem.Reset();
 
-			// 隕石シーンなら隕石もリセット
-			if (currentScene == METEOR)
-			{
-				meteorPos = { 100.0f, -100.0f };
-				isMeteorAlive = true;
-			}
 		}
 
 		particleEmitter.SetPosition(emitterPos);

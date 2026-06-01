@@ -31,7 +31,6 @@ void ParticleEmitter::Emit()
 
 	Vector2 velocity = velocity_;
 	Vector2 acceleration = acceleration_;
-	float lifeTime = lifeTime_;
 
 	// エミットのたびに半径をランダムに設定する
 	float radius = minRadius_;
@@ -46,7 +45,7 @@ void ParticleEmitter::Emit()
 	if (particleSystem_ != nullptr)
 	{
 
-		particleSystem_->Emit(position, velocity, acceleration, lifeTime, radius, color, isBubble_, isFire_, isFog_);
+		particleSystem_->Emit(position, velocity, acceleration, radius, color, isBubble_);
 	}
 
 }
@@ -71,11 +70,10 @@ void ParticleEmitter::SetPosition(const Vector2& position)
 	emittArea_.max.y = static_cast<int>(position.y) + halfHeight;
 }
 
-void ParticleEmitter::SetEmitterConfig(const Vector2& velocity, const Vector2& acceleration, float lifeTime, unsigned int color, const Vector2& emittSize, float minRadius, float maxRadius)
+void ParticleEmitter::SetEmitterConfig(const Vector2& velocity, const Vector2& acceleration, unsigned int color, const Vector2& emittSize, float minRadius, float maxRadius)
 {
 	velocity_ = velocity;
 	acceleration_ = acceleration;
-	lifeTime_ = lifeTime;
 	color_ = color;
 	emittSize_ = emittSize;
 	minRadius_ = minRadius;

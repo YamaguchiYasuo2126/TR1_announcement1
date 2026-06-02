@@ -47,7 +47,24 @@ void ParticleSystem::Update()
 		particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
 		particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
 
-		// 境界(コップ)との当たり判定
+		// 画面全体の床の判定
+		float screenFloor = 700.0f;
+		if (particles_[i]->predictedPosition.y > screenFloor - particles_[i]->radius)
+		{
+			particles_[i]->predictedPosition.y = screenFloor - particles_[i]->radius;
+			particles_[i]->velocity.y *= -0.2f; // 地面に着地
+			particles_[i]->velocity.x *= 0.8f;  // 摩擦
+		}
+	}
+	
+	// 境界(コップ)との当たり判定1回目
+	for (int i = 0; i < kMaxParticles; i++)
+	{
+		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		{
+			continue;
+		}
+		
 
 		// 底面(y = cupBottom)の判定
 		// 粒子の横幅がコップの底面の範囲(cupLeft 〜 cupRight)にあるとき
@@ -58,14 +75,14 @@ void ParticleSystem::Update()
 			if (particles_[i]->predictedPosition.y > cupBottom - particles_[i]->radius && particles_[i]->predictedPosition.y < cupBottom)
 			{
 				particles_[i]->predictedPosition.y = cupBottom - particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.5f; // 反発
+				particles_[i]->velocity.y *= -0.1f; // 反発
 			}
 			// 外側(下)から底面にめり込んだ場合
 			// 中心が底面より下にあり、かつ上端が底面を突き抜けている
 			else if (particles_[i]->predictedPosition.y < cupBottom + particles_[i]->radius && particles_[i]->predictedPosition.y >= cupBottom)
 			{
 				particles_[i]->predictedPosition.y = cupBottom + particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.5f;
+				particles_[i]->velocity.y *= -0.1f;
 			}
 		}
 
@@ -78,13 +95,13 @@ void ParticleSystem::Update()
 			if (particles_[i]->predictedPosition.x < cupLeft + particles_[i]->radius && particles_[i]->predictedPosition.x > cupLeft)
 			{
 				particles_[i]->predictedPosition.x = cupLeft + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.5f;
+				particles_[i]->velocity.x *= -0.1f;
 			}
 			// 外側(左)から左壁にめり込んだ場合
 			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
 			{
 				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.5f;
+				particles_[i]->velocity.x *= -0.1f;
 			}
 
 			// 右壁(x = cupRight)の判定
@@ -92,68 +109,91 @@ void ParticleSystem::Update()
 			if (particles_[i]->predictedPosition.x > cupRight - particles_[i]->radius && particles_[i]->predictedPosition.x < cupRight)
 			{
 				particles_[i]->predictedPosition.x = cupRight - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.5f;
+				particles_[i]->velocity.x *= -0.1f;
 			}
 			// 外側(右)から右壁にめり込んだ場合
 			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
 			{
 				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.5f;
+				particles_[i]->velocity.x *= -0.1f;
 			}
 		}
+	}
 
-		// 画面全体の床の判定
-		float screenFloor = 700.0f;
-		if (particles_[i]->predictedPosition.y > screenFloor - particles_[i]->radius)
-		{
-			particles_[i]->predictedPosition.y = screenFloor - particles_[i]->radius;
-			particles_[i]->velocity.y *= -0.2f; // 地面に着地
-			particles_[i]->velocity.x *= 0.8f;  // 摩擦
-		}
+	// 全粒子をグリッド（近傍探索用）に登録
+	for (int i = 0; i < kGridWidth * kGridHeight; i++) {
+		grid_[i].clear(); // 前フレームのデータを消去
+	}
+	for (int i = 0; i < kMaxParticles; i++) {
+		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+
+		int gridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
+		int gridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
+
+		if (gridX < 0) gridX = 0;
+		if (gridX >= kGridWidth) gridX = kGridWidth - 1;
+		if (gridY < 0) gridY = 0;
+		if (gridY >= kGridHeight) gridY = kGridHeight - 1;
+
+		grid_[gridY * kGridWidth + gridX].push_back(i);
 	}
 
 	// 粒子同士の衝突解決(密度の計算と押し出し)
 	// PBF(流体)のパラメータ
 	// この値をいじるとドロドロ、サラサラなどの質感が変わる
 	float smoothingRadius = 30.0f;    // 粒子がお互いを認識する半径(カーネル半径)
-	float targetDensity = 12000.0f;  // 目標密度(この値に近づくように反発する)
+	float targetDensity = 26000.0f;  // 目標密度(この値に近づくように反発する)
 	float pressureMultiplier = 0.1f;  // 押し出す力の強さ
+	float smoothingRadiusSq = smoothingRadius * smoothingRadius;
 
-	// 各粒子の「現在の密度」を計算する
+	// 密度の計算(グリッドを使用して周辺9マスを探索)
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive)
-		{
-			continue;
-		}
+		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
 
 		float density = 0.0f;
+		int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
+		int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
 
-		// 自分を含む、周りの全ての粒子との距離を測る
-		for (int j = 0; j < kMaxParticles; j++)
+		// 画面外クランプ
+		if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
+		if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
+
+		for (int offsetY = -1; offsetY <= 1; offsetY++) 
 		{
-			if (particles_[j] == nullptr || !particles_[j]->isActive)
+			for (int offsetX = -1; offsetX <= 1; offsetX++) 
 			{
-				continue;
-			}
+				int targetGridX = myGridX + offsetX;
+				int targetGridY = myGridY + offsetY;
+				if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
 
-			float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
-			float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
-			float distSq = dx * dx + dy * dy;
+				for (int j : grid_[targetGridY * kGridWidth + targetGridX])
+				{
+					if (particles_[j] == nullptr || !particles_[j]->isActive)
+					{
+						continue;
+					}
 
-			// smoothingRadiusの範囲内にいる粒子だけを計算
-			if (distSq < smoothingRadius * smoothingRadius)
-			{
-				float dist = sqrtf(distSq);
-				float influence = smoothingRadius - dist; // 近いほど値が大きくなる
+					float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
+					float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
+					float distSq = dx * dx + dy * dy;
 
-				// 影響度を3乗して密度に加算(中心に近いほど急激に密度が上がる)
-				density += influence * influence * influence;
+					// smoothingRadiusの範囲内にいる粒子だけを計算
+					if (distSq < smoothingRadiusSq)
+					{
+						float dist = sqrtf(distSq);
+						float influence = smoothingRadius - dist; // 近いほど値が大きくなる
+
+						// 影響度を3乗して密度に加算(中心に近いほど急激に密度が上がる)
+						density += influence * influence * influence;
+					}
+				}
 			}
 		}
 		// 自分の密度として保存
 		particles_[i]->density = density;
 	}
+
 
 	// 密度を元に「圧力」を計算し、予測位置を押し戻す
 	for (int i = 0; i < kMaxParticles; i++)
@@ -169,69 +209,84 @@ void ParticleSystem::Update()
 		// 密度が目標より高ければプラス(反発)、低ければマイナス(引き合う)になる
 		float pressureI = (particles_[i]->density - targetDensity) * pressureMultiplier;
 
-		for (int j = 0; j < kMaxParticles; j++)
+		int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
+		int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
+		if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
+		if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
+
+		for (int offsetY = -1; offsetY <= 1; offsetY++)
 		{
-			if (i == j)
+			for (int offsetX = -1; offsetX <= 1; offsetX++)
 			{
-				continue; // 自分自身は弾かない
-			}
+				int targetGridX = myGridX + offsetX;
+				int targetGridY = myGridY + offsetY;
+				if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
 
-			if (particles_[j] == nullptr || !particles_[j]->isActive)
-			{
-				continue;
-			}
-
-			float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
-			float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
-			float distSq = dx * dx + dy * dy;
-
-			if (distSq < smoothingRadius * smoothingRadius)
-			{
-				float dist = sqrtf(distSq);
-				if (dist < 0.0001f)
+				for (int j : grid_[targetGridY * kGridWidth + targetGridX])
 				{
-					continue; // 完全に重なっている場合のゼロ除算を回避
+					if (i == j)
+					{
+						continue; // 自分自身は弾かない
+					}
+
+					if (particles_[j] == nullptr || !particles_[j]->isActive)
+					{
+						continue;
+					}
+
+					float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
+					float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
+					float distSq = dx * dx + dy * dy;
+
+					if (distSq < smoothingRadius * smoothingRadius)
+					{
+						float dist = sqrtf(distSq);
+						if (dist < 0.0001f)
+						{
+							continue; // 完全に重なっている場合のゼロ除算を回避
+						}
+
+						// 相手の圧力
+						float pressureJ = (particles_[j]->density - targetDensity) * pressureMultiplier;
+
+						// お互いの圧力を平均化する(作用・反作用の法則)
+						float sharedPressure = (pressureI + pressureJ) * 0.5f;
+
+						// 爆発を防ぐため、圧力の計算結果は「押し出し(プラス)」のみに制限する
+						if (sharedPressure < 0.0f)
+						{
+							sharedPressure = 0.0f;
+						}
+
+						// 押し出す強さの計算(近いほど強く押し出す)
+						float influence = smoothingRadius - dist;
+						float pushForce = sharedPressure * (influence * influence) / particles_[j]->density;
+
+						// 表面張力(引力)の追加
+						float tensionForce = 0.0f;
+						float r = particles_[i]->radius;
+
+						// 表面張力の強さ
+						// 大きくするほど強くまとまり「スライム」や「水銀」のようになる
+						float tensionStrength = 0.1f;
+
+						// 粒子がめり込んでいる時は反発を優先し、
+						// 「半径(r)よりは離れているが、影響半径(smoothingRadius)の範囲内にいる」時だけ引き合う
+						if (dist > r && dist < smoothingRadius)
+						{
+							// 引力として働くようにマイナスの値にする
+							tensionForce = -tensionStrength * influence;
+						}
+
+						// 最終的な移動力の決定
+						// 反発力（＋）と 表面張力（－）を合算する
+						float totalForce = pushForce + tensionForce;
+
+						// 距離ベクトルを正規化して力を掛け、移動量に足し込む
+						pushVelocity.x += (dx / dist) * totalForce;
+						pushVelocity.y += (dy / dist) * totalForce;
+					}
 				}
-
-				// 相手の圧力
-				float pressureJ = (particles_[j]->density - targetDensity) * pressureMultiplier;
-
-				// お互いの圧力を平均化する(作用・反作用の法則)
-				float sharedPressure = (pressureI + pressureJ) * 0.5f;
-
-				// 爆発を防ぐため、圧力の計算結果は「押し出し(プラス)」のみに制限する
-				if (sharedPressure < 0.0f)
-				{
-					sharedPressure = 0.0f;
-				}
-
-				// 押し出す強さの計算(近いほど強く押し出す)
-				float influence = smoothingRadius - dist;
-				float pushForce = sharedPressure * (influence * influence) / particles_[j]->density;
-
-				// 表面張力(引力)の追加
-				float tensionForce = 0.0f;
-				float r = particles_[i]->radius;
-
-				// 表面張力の強さ
-				// 大きくするほど強くまとまり「スライム」や「水銀」のようになる
-				float tensionStrength = 0.36f;
-
-				// 粒子がめり込んでいる時は反発を優先し、
-				// 「半径(r)よりは離れているが、影響半径(smoothingRadius)の範囲内にいる」時だけ引き合う
-				if (dist > r && dist < smoothingRadius)
-				{
-					// 引力として働くようにマイナスの値にする
-					tensionForce = -tensionStrength * influence;
-				}
-
-				// 最終的な移動力の決定
-				// 反発力（＋）と 表面張力（－）を合算する
-				float totalForce = pushForce + tensionForce;
-
-				// 距離ベクトルを正規化して力を掛け、移動量に足し込む
-				pushVelocity.x += (dx / dist) * totalForce;
-				pushVelocity.y += (dy / dist) * totalForce;
 			}
 		}
 
@@ -240,6 +295,67 @@ void ParticleSystem::Update()
 		particles_[i]->predictedPosition.y += pushVelocity.y * deltaTime;
 	}
 
+	// 境界(コップ)との当たり判定2回目
+	for (int i = 0; i < kMaxParticles; i++)
+	{
+		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		{
+			continue;
+		}
+		
+		// 底面(y = cupBottom)の判定
+		// 粒子の横幅がコップの底面の範囲(cupLeft 〜 cupRight)にあるとき
+		if (particles_[i]->predictedPosition.x >= cupLeft && particles_[i]->predictedPosition.x <= cupRight)
+		{
+			// 内側(上)から底面にめり込んだ場合
+			// 中心が底面より上にあり、かつ下端が底面を突き抜けている
+			if (particles_[i]->predictedPosition.y > cupBottom - particles_[i]->radius && particles_[i]->predictedPosition.y < cupBottom)
+			{
+				particles_[i]->predictedPosition.y = cupBottom - particles_[i]->radius;
+				particles_[i]->velocity.y *= -0.1f; // 反発
+			}
+			// 外側(下)から底面にめり込んだ場合
+			// 中心が底面より下にあり、かつ上端が底面を突き抜けている
+			else if (particles_[i]->predictedPosition.y < cupBottom + particles_[i]->radius && particles_[i]->predictedPosition.y >= cupBottom)
+			{
+				particles_[i]->predictedPosition.y = cupBottom + particles_[i]->radius;
+				particles_[i]->velocity.y *= -0.1f;
+			}
+		}
+
+		// 側面(cupLeft, cupRight)の判定
+		// 粒子の縦幅がコップの高さの範囲(cupTop 〜 cupBottom)にあるとき
+		if (particles_[i]->predictedPosition.y >= cupTop && particles_[i]->predictedPosition.y <= cupBottom)
+		{
+			// 左壁(x = cupLeft)の判定
+			// (内側(右)から左壁にめり込んだ場合
+			if (particles_[i]->predictedPosition.x < cupLeft + particles_[i]->radius && particles_[i]->predictedPosition.x > cupLeft)
+			{
+				particles_[i]->predictedPosition.x = cupLeft + particles_[i]->radius;
+				particles_[i]->velocity.x *= -0.1f;
+			}
+			// 外側(左)から左壁にめり込んだ場合
+			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
+			{
+				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
+				particles_[i]->velocity.x *= -0.1f;
+			}
+
+			// 右壁(x = cupRight)の判定
+			// 内側(左)から右壁にめり込んだ場合
+			if (particles_[i]->predictedPosition.x > cupRight - particles_[i]->radius && particles_[i]->predictedPosition.x < cupRight)
+			{
+				particles_[i]->predictedPosition.x = cupRight - particles_[i]->radius;
+				particles_[i]->velocity.x *= -0.1f;
+			}
+			// 外側(右)から右壁にめり込んだ場合
+			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
+			{
+				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
+				particles_[i]->velocity.x *= -0.1f;
+			}
+		}
+	}
 
 	// 速度の再計算と位置の確定
 	for (int i = 0; i < kMaxParticles; i++)
@@ -256,6 +372,23 @@ void ParticleSystem::Update()
 		// 速度を少し減衰させる
 		particles_[i]->velocity.x *= 0.98f;
 		particles_[i]->velocity.y *= 0.98f;
+
+		// 速度リミッター(異常な吹き飛びを防止)
+		float maxSpeed = 600.0f;
+		float speedSq = (particles_[i]->velocity.x * particles_[i]->velocity.x) + (particles_[i]->velocity.y * particles_[i]->velocity.y);
+
+		// 速度の2乗が最大速度の2乗を超えていたら制限をかける
+		if (speedSq > maxSpeed * maxSpeed)
+		{
+			float currentSpeed = sqrtf(speedSq);
+			// 速度の方向を保ったまま、長さをmaxSpeedに縮小する
+			particles_[i]->velocity.x = (particles_[i]->velocity.x / currentSpeed) * maxSpeed;
+			particles_[i]->velocity.y = (particles_[i]->velocity.y / currentSpeed) * maxSpeed;
+
+			// 予測位置も制限された速度に合わせて再計算しておく
+			particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
+			particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
+		}
 
 		// 位置を確定させる
 		particles_[i]->position = particles_[i]->predictedPosition;

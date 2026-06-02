@@ -1,7 +1,15 @@
 ﻿#pragma once
 #include "Vector2.h"
+#include <vector>
 
 const int kMaxParticles = 600;
+
+// 近傍探索(グリッド)用の設定
+// セルのサイズは、PBFのsmoothingRadius(影響半径)と同じ値
+const float kCellSize = 40.0f;
+// 画面サイズ(1280x720)をセルサイズで割ったマス目の数
+const int kGridWidth = 40;
+const int kGridHeight = 25;
 
 typedef struct Particle
 {
@@ -39,5 +47,7 @@ public:
 
 private:
 	Particle* particles_[kMaxParticles]{};
+	// 画面のマス目(各マスの中に、粒子のインデックス番号を保存する)
+	std::vector<int> grid_[kGridWidth * kGridHeight];
 
 };

@@ -43,9 +43,29 @@ void ParticleSystem::Update()
 		particles_[i]->velocity.x += particles_[i]->acceleration.x * deltaTime;
 		particles_[i]->velocity.y += particles_[i]->acceleration.y * deltaTime;
 
+		// コップ外壁の吸着力（Adhesion）
+		// パーティクルがコップの高さの範囲にいるか
+		if (particles_[i]->position.y >= cupTop - 20.0f && particles_[i]->position.y <= cupBottom)
+		{
+			float adhesionDistance = 15.0f; // 吸着力を働かせる距離（パーティクルの半径＋αくらい）
+			float adhesionForce = 350.0f;   // 壁に引き寄せる強さ
+
+			// 左壁の外側にいる場合、右（壁側）へ引っ張る
+			if (particles_[i]->position.x < cupLeft && particles_[i]->position.x > cupLeft - adhesionDistance)
+			{
+				particles_[i]->velocity.x += adhesionForce * deltaTime;
+			}
+			// 右壁の外側にいる場合、左（壁側）へ引っ張る
+			else if (particles_[i]->position.x > cupRight && particles_[i]->position.x < cupRight + adhesionDistance)
+			{
+				particles_[i]->velocity.x -= adhesionForce * deltaTime;
+			}
+		}
+
 		// 予測位置(predictedPosition)を計算
 		particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
 		particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
+
 
 		// 画面全体の床の判定
 		float screenFloor = 700.0f;
@@ -101,7 +121,8 @@ void ParticleSystem::Update()
 			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
 			{
 				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
+				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
+				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
 			}
 
 			// 右壁(x = cupRight)の判定
@@ -115,7 +136,8 @@ void ParticleSystem::Update()
 			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
 			{
 				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
+				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にくっつける
+				particles_[i]->velocity.y *= 0.8f;  // 壁面摩擦
 			}
 		}
 	}
@@ -338,7 +360,8 @@ void ParticleSystem::Update()
 			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
 			{
 				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
+				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
+				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
 			}
 
 			// 右壁(x = cupRight)の判定
@@ -352,7 +375,8 @@ void ParticleSystem::Update()
 			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
 			{
 				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
+				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
+				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
 			}
 		}
 	}
@@ -368,6 +392,37 @@ void ParticleSystem::Update()
 		// 修正された予測位置から、実際の速度を逆算する
 		particles_[i]->velocity.x = (particles_[i]->predictedPosition.x - particles_[i]->position.x) / deltaTime;
 		particles_[i]->velocity.y = (particles_[i]->predictedPosition.y - particles_[i]->position.y) / deltaTime;
+
+		// コップのふち（エッジ）での爆発的な横飛びを強力に抑える
+		// ふちの高さ付近(cupTop)にいるパーティクルを対象
+		if (particles_[i]->predictedPosition.y >= cupTop - particles_[i]->radius * 2.0f &&
+			particles_[i]->predictedPosition.y <= cupTop + particles_[i]->radius * 2.0f)
+		{
+			// 左のふち付近で、左（外側）へ強く飛ぼうとしている場合
+			if (particles_[i]->predictedPosition.x < cupLeft &&
+				particles_[i]->predictedPosition.x > cupLeft - 20.0f &&
+				particles_[i]->velocity.x < 0.0f) // 速度がマイナス(左向き)の時だけ
+			{
+				particles_[i]->velocity.x *= 0.5f; // 横方向の勢いを50%カットして殺す
+				particles_[i]->velocity.y += 200.0f * deltaTime; // 少し下向きに落として吸着力(Adhesion)エリアへ誘導
+
+				// 変更した速度に合わせて予測位置を再計算
+				particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
+				particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
+			}
+			// 右のふち付近で、右（外側）へ強く飛ぼうとしている場合
+			else if (particles_[i]->predictedPosition.x > cupRight &&
+				particles_[i]->predictedPosition.x < cupRight + 20.0f &&
+				particles_[i]->velocity.x > 0.0f) // 速度がプラス(右向き)の時だけ
+			{
+				particles_[i]->velocity.x *= 0.5f; // 横方向の勢いを50%カット
+				particles_[i]->velocity.y += 200.0f * deltaTime;
+
+				// 変更した速度に合わせて予測位置を再計算
+				particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
+				particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
+			}
+		}
 
 		// 速度を少し減衰させる
 		particles_[i]->velocity.x *= 0.98f;

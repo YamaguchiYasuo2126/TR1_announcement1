@@ -139,7 +139,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 
 		// リセット処理
-		if (keys[DIK_R] && !preKeys[DIK_R])
+		if (keys[DIK_RETURN] && !preKeys[DIK_RETURN])
 		{
 			particleSystem.Reset();
 

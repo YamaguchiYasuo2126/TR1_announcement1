@@ -55,10 +55,10 @@ void ParticleSystem::Update()
 	}
 
 	// コップ(境界)のパラメータ
-	float cupLeft = 540.0f;
-	float cupRight = 740.0f;
-	float cupBottom = 600.0f;
-	float cupTop = 300.0f;
+	float cupLeft = cupPosition.x - cupWidth / 2.0f;
+	float cupRight = cupPosition.x + cupWidth / 2.0f;
+	float cupBottom = cupPosition.y + cupHeight / 2.0f;
+	float cupTop = cupPosition.y - cupHeight / 2.0f;
 
 	// 外力の適用と予測位置の計算
 	for (int i = 0; i < kMaxParticles; i++)
@@ -110,68 +110,63 @@ void ParticleSystem::Update()
 		}
 	}
 	
-	// 境界(コップ)との当たり判定1回目
+	// 境界(コップ)との当たり判定（ローカル座標系への変換）
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive)
-		{
-			continue;
+		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+
+		// 1. コップ中心からの相対位置ベクトル
+		float dx = particles_[i]->predictedPosition.x - cupPosition.x;
+		float dy = particles_[i]->predictedPosition.y - cupPosition.y;
+
+		// 2. 逆回転させてローカル座標にする（角度をマイナスにして回転）
+		float cosInv = cosf(-cupAngle);
+		float sinInv = sinf(-cupAngle);
+		float localX = dx * cosInv - dy * sinInv;
+		float localY = dx * sinInv + dy * cosInv;
+
+		// 速度ベクトルもローカル空間に変換しておく
+		float localVelX = particles_[i]->velocity.x * cosInv - particles_[i]->velocity.y * sinInv;
+		float localVelY = particles_[i]->velocity.x * sinInv + particles_[i]->velocity.y * cosInv;
+
+		// 3. ローカル空間でのまっすぐなAABB判定
+		float halfW = cupWidth / 2.0f;
+		float halfH = cupHeight / 2.0f;
+		float radius = particles_[i]->radius;
+		bool isHit = false;
+
+		// 左壁
+		// localY が -halfH(コップの上端)より下にある時だけ壁として機能する
+		if (localY >= -halfH && localX < -halfW + radius && localX > -halfW - 30.0f) {
+			localX = -halfW + radius;
+			localVelX *= -0.5f; // 反発係数
+			isHit = true;
 		}
-		
-
-		// 底面(y = cupBottom)の判定
-		// 粒子の横幅がコップの底面の範囲(cupLeft 〜 cupRight)にあるとき
-		if (particles_[i]->predictedPosition.x >= cupLeft && particles_[i]->predictedPosition.x <= cupRight)
-		{
-			// 内側(上)から底面にめり込んだ場合
-			// 中心が底面より上にあり、かつ下端が底面を突き抜けている
-			if (particles_[i]->predictedPosition.y > cupBottom - particles_[i]->radius && particles_[i]->predictedPosition.y < cupBottom)
-			{
-				particles_[i]->predictedPosition.y = cupBottom - particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.1f; // 反発
-			}
-			// 外側(下)から底面にめり込んだ場合
-			// 中心が底面より下にあり、かつ上端が底面を突き抜けている
-			else if (particles_[i]->predictedPosition.y < cupBottom + particles_[i]->radius && particles_[i]->predictedPosition.y >= cupBottom)
-			{
-				particles_[i]->predictedPosition.y = cupBottom + particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.1f;
-			}
+		// 右壁
+		// localY が -halfH(コップの上端)より下にある時だけ壁として機能する
+		else if (localY >= -halfH && localX > halfW - radius && localX < halfW + 30.0f) {
+			localX = halfW - radius;
+			localVelX *= -0.5f;
+			isHit = true;
 		}
 
-		// 側面(cupLeft, cupRight)の判定
-		// 粒子の縦幅がコップの高さの範囲(cupTop 〜 cupBottom)にあるとき
-		if (particles_[i]->predictedPosition.y >= cupTop && particles_[i]->predictedPosition.y <= cupBottom)
-		{
-			// 左壁(x = cupLeft)の判定
-			// (内側(右)から左壁にめり込んだ場合
-			if (particles_[i]->predictedPosition.x < cupLeft + particles_[i]->radius && particles_[i]->predictedPosition.x > cupLeft)
-			{
-				particles_[i]->predictedPosition.x = cupLeft + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
-			}
-			// 外側(左)から左壁にめり込んだ場合
-			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
-			{
-				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
-				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
-				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
-			}
+		// 底（Y軸下向き正）
+		if (localX >= -halfW && localX <= halfW && localY > halfH - radius && localY < halfH + 30.0f) {
+			localY = halfH - radius;
+			localVelY *= -0.5f;
+			isHit = true;
+		}
 
-			// 右壁(x = cupRight)の判定
-			// 内側(左)から右壁にめり込んだ場合
-			if (particles_[i]->predictedPosition.x > cupRight - particles_[i]->radius && particles_[i]->predictedPosition.x < cupRight)
-			{
-				particles_[i]->predictedPosition.x = cupRight - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
-			}
-			// 外側(右)から右壁にめり込んだ場合
-			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
-			{
-				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
-				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にくっつける
-				particles_[i]->velocity.y *= 0.8f;  // 壁面摩擦
-			}
+		// 衝突していたら、ワールド座標に順回転で戻して適用
+		if (isHit) {
+			float cosFwd = cosf(cupAngle);
+			float sinFwd = sinf(cupAngle);
+
+			particles_[i]->predictedPosition.x = cupPosition.x + (localX * cosFwd - localY * sinFwd);
+			particles_[i]->predictedPosition.y = cupPosition.y + (localX * sinFwd + localY * cosFwd);
+
+			particles_[i]->velocity.x = localVelX * cosFwd - localVelY * sinFwd;
+			particles_[i]->velocity.y = localVelX * sinFwd + localVelY * cosFwd;
 		}
 	}
 
@@ -512,8 +507,32 @@ void ParticleSystem::Update()
 void ParticleSystem::Draw()
 {
 
-	// コップの枠線を描画
-	Novice::DrawBox(540, 300, 200, 300, 0.0f, 0x555555FF, kFillModeWireFrame);
+	// コップのローカル頂点（左上、左下、右下、右上）
+	float halfW = cupWidth / 2.0f;
+	float halfH = cupHeight / 2.0f;
+	Vector2 localTL = { -halfW, -halfH };
+	Vector2 localBL = { -halfW,  halfH };
+	Vector2 localBR = { halfW,  halfH };
+	Vector2 localTR = { halfW, -halfH };
+
+	// ワールド座標に変換するラムダ式（コードをすっきりさせるため）
+	auto toWorld = [&](Vector2 local) -> Vector2 {
+		return {
+			cupPosition.x + (local.x * cosf(cupAngle) - local.y * sinf(cupAngle)),
+			cupPosition.y + (local.x * sinf(cupAngle) + local.y * cosf(cupAngle))
+		};
+		};
+
+	Vector2 worldTL = toWorld(localTL);
+	Vector2 worldBL = toWorld(localBL);
+	Vector2 worldBR = toWorld(localBR);
+	Vector2 worldTR = toWorld(localTR);
+
+	// 左壁・底・右壁の3本の線でコップを描画
+	unsigned int cupColor = 0x555555FF;
+	Novice::DrawLine((int)worldTL.x, (int)worldTL.y, (int)worldBL.x, (int)worldBL.y, cupColor);
+	Novice::DrawLine((int)worldBL.x, (int)worldBL.y, (int)worldBR.x, (int)worldBR.y, cupColor);
+	Novice::DrawLine((int)worldBR.x, (int)worldBR.y, (int)worldTR.x, (int)worldTR.y, cupColor);
 
 	for (int i = 0; i < kMaxParticles; i++)
 	{

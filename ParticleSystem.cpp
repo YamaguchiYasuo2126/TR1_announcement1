@@ -25,6 +25,35 @@ void ParticleSystem::Update()
 {
 	float deltaTime = 1.0f / 60.0f;
 
+	float sleepVelocityThreshold = 5.0f; // スリープと判定する速度の閾値
+	float timeToSleep = 0.5f;            // スリープに入るまでの秒数（0.5秒動かなければスリープ）
+
+	for (int i = 0; i < kMaxParticles; i++)
+	{
+		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+
+		// 現在の速度の大きさ（の2乗）を計算（平方根の計算を省くための軽量化）
+		float speedSq = particles_[i]->velocity.x * particles_[i]->velocity.x + particles_[i]->velocity.y * particles_[i]->velocity.y;
+
+		if (speedSq < sleepVelocityThreshold * sleepVelocityThreshold)
+		{
+			// 速度が閾値以下なら、restTimeを増やす
+			particles_[i]->restTime += deltaTime;
+			if (particles_[i]->restTime > timeToSleep)
+			{
+				particles_[i]->isSleeping = true;
+				// スリープに入ったら完全に停止させる
+				particles_[i]->velocity = { 0.0f, 0.0f };
+			}
+		}
+		else
+		{
+			// 速度が閾値を超えたら、スリープを解除してタイマーをリセット
+			particles_[i]->restTime = 0.0f;
+			particles_[i]->isSleeping = false;
+		}
+	}
+
 	// コップ(境界)のパラメータ
 	float cupLeft = 540.0f;
 	float cupRight = 740.0f;
@@ -39,9 +68,13 @@ void ParticleSystem::Update()
 			continue;
 		}
 
-		// 重力(加速度)を速度に加算
-		particles_[i]->velocity.x += particles_[i]->acceleration.x * deltaTime;
-		particles_[i]->velocity.y += particles_[i]->acceleration.y * deltaTime;
+		// スリープ状態でない（起きている）時だけ重力を加算する
+		if (!particles_[i]->isSleeping)
+		{
+			// 重力(加速度)を速度に加算
+			particles_[i]->velocity.x += particles_[i]->acceleration.x * deltaTime;
+			particles_[i]->velocity.y += particles_[i]->acceleration.y * deltaTime;
+		}
 
 		// コップ外壁の吸着力（Adhesion）
 		// パーティクルがコップの高さの範囲にいるか
@@ -312,6 +345,28 @@ void ParticleSystem::Update()
 			}
 		}
 
+		// 自分がスリープ状態なら、周囲からの反発力をゼロにする
+		if (particles_[i]->isSleeping)
+		{
+			// 計算された反発力(pushVelocity)の大きさを確認
+			float pushSq = pushVelocity.x * pushVelocity.x + pushVelocity.y * pushVelocity.y;
+
+			// 目を覚ます力の閾値（衝撃への敏感さ）
+			float wakeUpThreshold = 100.0f;
+
+			if (pushSq > wakeUpThreshold * wakeUpThreshold)
+			{
+				// 強い力（衝撃）を受けたので目を覚ます
+				particles_[i]->isSleeping = false;
+				particles_[i]->restTime = 0.0f;
+			}
+			else
+			{
+				// 力が弱ければ、そのまま静止し続ける
+				pushVelocity = { 0.0f, 0.0f };
+			}
+		}
+
 		// 計算した反発力を使って、予測位置をずらす
 		particles_[i]->predictedPosition.x += pushVelocity.x * deltaTime;
 		particles_[i]->predictedPosition.y += pushVelocity.y * deltaTime;
@@ -429,7 +484,7 @@ void ParticleSystem::Update()
 		particles_[i]->velocity.y *= 0.98f;
 
 		// 速度リミッター(異常な吹き飛びを防止)
-		float maxSpeed = 600.0f;
+		float maxSpeed = 800.0f;
 		float speedSq = (particles_[i]->velocity.x * particles_[i]->velocity.x) + (particles_[i]->velocity.y * particles_[i]->velocity.y);
 
 		// 速度の2乗が最大速度の2乗を超えていたら制限をかける

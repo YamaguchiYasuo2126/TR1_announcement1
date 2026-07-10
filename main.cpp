@@ -147,6 +147,40 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 		particleEmitter.SetPosition(emitterPos);
 
+		// コップの移動（矢印キー）
+		float moveSpeed = 5.0f;
+		if (keys[DIK_UP]) 
+		{ 
+			particleSystem.cupPosition.y -= moveSpeed; 
+		}
+
+		if (keys[DIK_DOWN]) 
+		{
+			particleSystem.cupPosition.y += moveSpeed;
+		}
+
+		if (keys[DIK_LEFT])
+		{ 
+			particleSystem.cupPosition.x -= moveSpeed;
+		}
+
+		if (keys[DIK_RIGHT])
+		{ 
+			particleSystem.cupPosition.x += moveSpeed;
+		}
+
+		// コップの回転（L / R キー）
+		float rotateSpeed = 0.05f;
+		if (keys[DIK_L]) 
+		{ 
+			particleSystem.cupAngle -= rotateSpeed;
+		}
+
+		if (keys[DIK_R]) 
+		{ 
+			particleSystem.cupAngle += rotateSpeed;
+		}
+
 		// パーティクルシステム更新
 		particleSystem.Update();
 

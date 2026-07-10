@@ -28,6 +28,10 @@ typedef struct Particle
 	unsigned int color = 0xFFFFFFFF;
 	float elapsedTime = 0.0f;
 	int isBubble = false;
+
+	// スリープ機能用の変数
+	float restTime = 0.0f;       // 動いていない（速度が閾値以下）の合計時間
+	bool isSleeping = false;     // 現在スリープ状態かどうか
 } Particle;
 
 
@@ -35,7 +39,11 @@ class ParticleSystem
 {
 
 public:
-
+	// コップのパラメータ
+	Vector2 cupPosition{ 640.0f, 450.0f }; // コップの中心位置
+	float cupAngle = 0.0f; // コップの回転角度(ラジアン)
+	float cupWidth = 200.0f; // コップの幅
+	float cupHeight = 300.0f; // コップの高さ
 
 public:
 	void Initialize();

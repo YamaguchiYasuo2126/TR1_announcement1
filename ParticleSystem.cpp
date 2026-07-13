@@ -54,12 +54,6 @@ void ParticleSystem::Update()
 		}
 	}
 
-	// コップ(境界)のパラメータ
-	float cupLeft = cupPosition.x - cupWidth / 2.0f;
-	float cupRight = cupPosition.x + cupWidth / 2.0f;
-	float cupBottom = cupPosition.y + cupHeight / 2.0f;
-	float cupTop = cupPosition.y - cupHeight / 2.0f;
-
 	// 外力の適用と予測位置の計算
 	for (int i = 0; i < kMaxParticles; i++)
 	{
@@ -74,25 +68,6 @@ void ParticleSystem::Update()
 			// 重力(加速度)を速度に加算
 			particles_[i]->velocity.x += particles_[i]->acceleration.x * deltaTime;
 			particles_[i]->velocity.y += particles_[i]->acceleration.y * deltaTime;
-		}
-
-		// コップ外壁の吸着力（Adhesion）
-		// パーティクルがコップの高さの範囲にいるか
-		if (particles_[i]->position.y >= cupTop - 20.0f && particles_[i]->position.y <= cupBottom)
-		{
-			float adhesionDistance = 15.0f; // 吸着力を働かせる距離（パーティクルの半径＋αくらい）
-			float adhesionForce = 350.0f;   // 壁に引き寄せる強さ
-
-			// 左壁の外側にいる場合、右（壁側）へ引っ張る
-			if (particles_[i]->position.x < cupLeft && particles_[i]->position.x > cupLeft - adhesionDistance)
-			{
-				particles_[i]->velocity.x += adhesionForce * deltaTime;
-			}
-			// 右壁の外側にいる場合、左（壁側）へ引っ張る
-			else if (particles_[i]->position.x > cupRight && particles_[i]->position.x < cupRight + adhesionDistance)
-			{
-				particles_[i]->velocity.x -= adhesionForce * deltaTime;
-			}
 		}
 
 		// 予測位置(predictedPosition)を計算
@@ -110,65 +85,7 @@ void ParticleSystem::Update()
 		}
 	}
 	
-	// 境界(コップ)との当たり判定（ローカル座標系への変換）
-	for (int i = 0; i < kMaxParticles; i++)
-	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
-
-		// 1. コップ中心からの相対位置ベクトル
-		float dx = particles_[i]->predictedPosition.x - cupPosition.x;
-		float dy = particles_[i]->predictedPosition.y - cupPosition.y;
-
-		// 2. 逆回転させてローカル座標にする（角度をマイナスにして回転）
-		float cosInv = cosf(-cupAngle);
-		float sinInv = sinf(-cupAngle);
-		float localX = dx * cosInv - dy * sinInv;
-		float localY = dx * sinInv + dy * cosInv;
-
-		// 速度ベクトルもローカル空間に変換しておく
-		float localVelX = particles_[i]->velocity.x * cosInv - particles_[i]->velocity.y * sinInv;
-		float localVelY = particles_[i]->velocity.x * sinInv + particles_[i]->velocity.y * cosInv;
-
-		// 3. ローカル空間でのまっすぐなAABB判定
-		float halfW = cupWidth / 2.0f;
-		float halfH = cupHeight / 2.0f;
-		float radius = particles_[i]->radius;
-		bool isHit = false;
-
-		// 左壁
-		// localY が -halfH(コップの上端)より下にある時だけ壁として機能する
-		if (localY >= -halfH && localX < -halfW + radius && localX > -halfW - 30.0f) {
-			localX = -halfW + radius;
-			localVelX *= -0.5f; // 反発係数
-			isHit = true;
-		}
-		// 右壁
-		// localY が -halfH(コップの上端)より下にある時だけ壁として機能する
-		else if (localY >= -halfH && localX > halfW - radius && localX < halfW + 30.0f) {
-			localX = halfW - radius;
-			localVelX *= -0.5f;
-			isHit = true;
-		}
-
-		// 底（Y軸下向き正）
-		if (localX >= -halfW && localX <= halfW && localY > halfH - radius && localY < halfH + 30.0f) {
-			localY = halfH - radius;
-			localVelY *= -0.5f;
-			isHit = true;
-		}
-
-		// 衝突していたら、ワールド座標に順回転で戻して適用
-		if (isHit) {
-			float cosFwd = cosf(cupAngle);
-			float sinFwd = sinf(cupAngle);
-
-			particles_[i]->predictedPosition.x = cupPosition.x + (localX * cosFwd - localY * sinFwd);
-			particles_[i]->predictedPosition.y = cupPosition.y + (localX * sinFwd + localY * cosFwd);
-
-			particles_[i]->velocity.x = localVelX * cosFwd - localVelY * sinFwd;
-			particles_[i]->velocity.y = localVelX * sinFwd + localVelY * cosFwd;
-		}
-	}
+	
 
 	// 全粒子をグリッド（近傍探索用）に登録
 	for (int i = 0; i < kGridWidth * kGridHeight; i++) {
@@ -367,67 +284,206 @@ void ParticleSystem::Update()
 		particles_[i]->predictedPosition.y += pushVelocity.y * deltaTime;
 	}
 
-	// 境界(コップ)との当たり判定2回目
+	// 境界(コップ)との当たり判定（ローカル座標系への変換）
 	for (int i = 0; i < kMaxParticles; i++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive)
+		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+
+		// 直前の位置（position）もローカル座標にして、どこから来たか判定する
+		float oldDx = particles_[i]->position.x - cupPosition.x;
+		float oldDy = particles_[i]->position.y - cupPosition.y;
+
+		// 逆回転させてローカル座標にする
+		float cosInv = cosf(-cupAngle);
+		float sinInv = sinf(-cupAngle);
+
+		float oldLocalX = oldDx * cosInv - oldDy * sinInv;
+		float oldLocalY = oldDx * sinInv + oldDy * cosInv;
+
+		// 予測位置のローカル座標
+		float dx = particles_[i]->predictedPosition.x - cupPosition.x;
+		float dy = particles_[i]->predictedPosition.y - cupPosition.y;
+		float localX = dx * cosInv - dy * sinInv;
+		float localY = dx * sinInv + dy * cosInv;
+
+		// 速度ベクトルもローカル空間に変換
+		float localVelX = particles_[i]->velocity.x * cosInv - particles_[i]->velocity.y * sinInv;
+		float localVelY = particles_[i]->velocity.x * sinInv + particles_[i]->velocity.y * cosInv;
+
+		float halfW = cupWidth / 2.0f;
+		float halfH = cupHeight / 2.0f;
+		float radius = particles_[i]->radius;
+		bool isHit = false;
+
+		// コップのフチとの円判定
+		// 左上のフチ (-halfW, -halfH)
+		float distSqTL = (localX - (-halfW)) * (localX - (-halfW)) + (localY - (-halfH)) * (localY - (-halfH));
+		if (distSqTL < radius * radius)
 		{
-			continue;
-		}
-		
-		// 底面(y = cupBottom)の判定
-		// 粒子の横幅がコップの底面の範囲(cupLeft 〜 cupRight)にあるとき
-		if (particles_[i]->predictedPosition.x >= cupLeft && particles_[i]->predictedPosition.x <= cupRight)
-		{
-			// 内側(上)から底面にめり込んだ場合
-			// 中心が底面より上にあり、かつ下端が底面を突き抜けている
-			if (particles_[i]->predictedPosition.y > cupBottom - particles_[i]->radius && particles_[i]->predictedPosition.y < cupBottom)
+			float dist = sqrtf(distSqTL);
+			if (dist > 0.0001f)
 			{
-				particles_[i]->predictedPosition.y = cupBottom - particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.1f; // 反発
-			}
-			// 外側(下)から底面にめり込んだ場合
-			// 中心が底面より下にあり、かつ上端が底面を突き抜けている
-			else if (particles_[i]->predictedPosition.y < cupBottom + particles_[i]->radius && particles_[i]->predictedPosition.y >= cupBottom)
-			{
-				particles_[i]->predictedPosition.y = cupBottom + particles_[i]->radius;
-				particles_[i]->velocity.y *= -0.1f;
+				float nx = (localX - (-halfW)) / dist;
+				float ny = (localY - (-halfH)) / dist;
+				localX = -halfW + nx * radius;
+				localY = -halfH + ny * radius;
+
+				// 速度を法線方向（跳ね返る方向）へ反射
+				float dot = localVelX * nx + localVelY * ny;
+				if (dot < 0.0f)
+				{
+					localVelX -= 1.2f * dot * nx;
+					localVelY -= 1.2f * dot * ny;
+				}
+				isHit = true;
 			}
 		}
 
-		// 側面(cupLeft, cupRight)の判定
-		// 粒子の縦幅がコップの高さの範囲(cupTop 〜 cupBottom)にあるとき
-		if (particles_[i]->predictedPosition.y >= cupTop && particles_[i]->predictedPosition.y <= cupBottom)
+		// 右上のフチ (halfW, -halfH)
+		float distSqTR = (localX - halfW) * (localX - halfW) + (localY - (-halfH)) * (localY - (-halfH));
+		if (distSqTR < radius * radius)
 		{
-			// 左壁(x = cupLeft)の判定
-			// (内側(右)から左壁にめり込んだ場合
-			if (particles_[i]->predictedPosition.x < cupLeft + particles_[i]->radius && particles_[i]->predictedPosition.x > cupLeft)
+			float dist = sqrtf(distSqTR);
+			if (dist > 0.0001f) 
 			{
-				particles_[i]->predictedPosition.x = cupLeft + particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
-			}
-			// 外側(左)から左壁にめり込んだ場合
-			else if (particles_[i]->predictedPosition.x > cupLeft - particles_[i]->radius && particles_[i]->predictedPosition.x <= cupLeft)
-			{
-				particles_[i]->predictedPosition.x = cupLeft - particles_[i]->radius;
-				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
-				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
-			}
+				float nx = (localX - halfW) / dist;
+				float ny = (localY - (-halfH)) / dist;
+				localX = halfW + nx * radius;
+				localY = -halfH + ny * radius;
 
-			// 右壁(x = cupRight)の判定
-			// 内側(左)から右壁にめり込んだ場合
-			if (particles_[i]->predictedPosition.x > cupRight - particles_[i]->radius && particles_[i]->predictedPosition.x < cupRight)
-			{
-				particles_[i]->predictedPosition.x = cupRight - particles_[i]->radius;
-				particles_[i]->velocity.x *= -0.1f;
+				float dot = localVelX * nx + localVelY * ny;
+				if (dot < 0.0f)
+				{
+					localVelX -= 1.2f * dot * nx;
+					localVelY -= 1.2f * dot * ny;
+				}
+				isHit = true;
 			}
-			// 外側(右)から右壁にめり込んだ場合
-			else if (particles_[i]->predictedPosition.x < cupRight + particles_[i]->radius && particles_[i]->predictedPosition.x >= cupRight)
+		}
+
+		// 左壁
+		if ((oldLocalY > -halfH && oldLocalY < halfH) || (localY > -halfH && localY < halfH))
+		{
+			// 上から落ちてきて壁の断面に侵入した場合の横ワープを防ぐ
+			if (oldLocalY <= -halfH && localY > -halfH && localX > -halfW - radius && localX < -halfW + radius)
 			{
-				particles_[i]->predictedPosition.x = cupRight + particles_[i]->radius;
-				particles_[i]->velocity.x *= 0.0f;  // 反発させず、壁にピタッとくっつける
-				particles_[i]->velocity.y *= 0.8f;  // 落下速度を減衰させて伝うようにする
+				localY = -halfH - radius; // 横ではなく上に押し戻す
+				localVelY *= -0.1f;
+				isHit = true;
 			}
+			else
+			{
+				// 内側(右)から外側(左)へ突き抜けた場合
+				if (oldLocalX >= -halfW && localX < -halfW + radius)
+				{
+					localX = -halfW + radius;
+					localVelX *= -0.1f;
+					isHit = true;
+				}
+				// 外側(左)から内側(右)へ突き抜けた場合（外壁への衝突）
+				else if (oldLocalX < -halfW && localX > -halfW - radius)
+				{
+					localX = -halfW - radius;
+					localVelX *= 0.0f; // 跳ね返りをなくして壁に沿いやすくする
+					localVelY *= 0.8f;
+					isHit = true;
+				}
+			}
+		}
+
+		// 右壁
+		if ((oldLocalY > -halfH && oldLocalY < halfH) || (localY > -halfH && localY < halfH))
+		{
+			// 上から落ちてきて壁の断面に侵入した場合の横ワープを防ぐ
+			if (oldLocalY <= -halfH && localY > -halfH && localX > halfW - radius && localX < halfW + radius)
+			{
+				localY = -halfH - radius; // 横ではなく上に押し戻す
+				localVelY *= -0.1f;
+				isHit = true;
+			}
+			else
+			{
+				// 内側(左)から外側(右)へ突き抜けた場合
+				if (oldLocalX <= halfW && localX > halfW - radius)
+				{
+					localX = halfW - radius;
+					localVelX *= -0.1f;
+					isHit = true;
+				}
+				// 外側(右)から内側(左)へ突き抜けた場合（外壁への衝突）
+				else if (oldLocalX > halfW && localX < halfW + radius)
+				{
+					localX = halfW + radius;
+					localVelX *= 0.0f; // 跳ね返りを小さくして壁に沿いやすくする
+					localVelY *= 0.8f;
+					isHit = true;
+				}
+			}
+		}
+
+		// 底
+		if ((oldLocalX >= -halfW && oldLocalX <= halfW) || (localX >= -halfW && localX <= halfW))
+		{
+			// 内側(上)から外側(下)へ突き抜けた場合
+			if (oldLocalY <= halfH && localY > halfH - radius)
+			{
+				localY = halfH - radius;
+				localVelY *= -0.1f;
+				isHit = true;
+			}
+			// 外側(下)から内側(上)へ突き抜けた場合
+			else if (oldLocalY > halfH && localY < halfH + radius)
+			{
+				localY = halfH + radius;
+				localVelY *= -0.1f;
+				isHit = true;
+			}
+		}
+
+		// 外壁を伝うための吸着（親水性）処理
+		// コップの高さの範囲内にいる場合のみ処理する
+		if (localY >= -halfH && localY <= halfH)
+		{
+			float adhesionRange = radius * 1.5f; // 吸着が働く距離（壁からのリミット）
+			float adhesionForce = 350.0f;         // 壁に引き寄せる強さ
+
+			// 左壁の外側近くにいるなら、壁（右方向）へ引き寄せる
+			if (localX < -halfW && localX > -halfW - adhesionRange)
+			{
+				localVelX += adhesionForce;
+
+				// 壁にめり込まないように表面でクランプ
+				if (localX > -halfW - radius)
+				{
+					localX = -halfW - radius;
+				}
+				isHit = true;
+			}
+			// 右壁の外側近くにいるなら、壁（左方向）へ引き寄せる
+			else if (localX > halfW && localX < halfW + adhesionRange)
+			{
+				localVelX -= adhesionForce;
+
+				// 壁にめり込まないように表面でクランプ
+				if (localX < halfW + radius)
+				{
+					localX = halfW + radius;
+				}
+				isHit = true;
+			}
+		}
+
+		// 衝突・吸着していたら、ワールド座標に順回転で戻して適用
+		if (isHit)
+		{
+			float cosFwd = cosf(cupAngle);
+			float sinFwd = sinf(cupAngle);
+
+			particles_[i]->predictedPosition.x = cupPosition.x + (localX * cosFwd - localY * sinFwd);
+			particles_[i]->predictedPosition.y = cupPosition.y + (localX * sinFwd + localY * cosFwd);
+
+			particles_[i]->velocity.x = localVelX * cosFwd - localVelY * sinFwd;
+			particles_[i]->velocity.y = localVelX * sinFwd + localVelY * cosFwd;
 		}
 	}
 
@@ -442,37 +498,6 @@ void ParticleSystem::Update()
 		// 修正された予測位置から、実際の速度を逆算する
 		particles_[i]->velocity.x = (particles_[i]->predictedPosition.x - particles_[i]->position.x) / deltaTime;
 		particles_[i]->velocity.y = (particles_[i]->predictedPosition.y - particles_[i]->position.y) / deltaTime;
-
-		// コップのふち（エッジ）での爆発的な横飛びを強力に抑える
-		// ふちの高さ付近(cupTop)にいるパーティクルを対象
-		if (particles_[i]->predictedPosition.y >= cupTop - particles_[i]->radius * 2.0f &&
-			particles_[i]->predictedPosition.y <= cupTop + particles_[i]->radius * 2.0f)
-		{
-			// 左のふち付近で、左（外側）へ強く飛ぼうとしている場合
-			if (particles_[i]->predictedPosition.x < cupLeft &&
-				particles_[i]->predictedPosition.x > cupLeft - 20.0f &&
-				particles_[i]->velocity.x < 0.0f) // 速度がマイナス(左向き)の時だけ
-			{
-				particles_[i]->velocity.x *= 0.5f; // 横方向の勢いを50%カットして殺す
-				particles_[i]->velocity.y += 200.0f * deltaTime; // 少し下向きに落として吸着力(Adhesion)エリアへ誘導
-
-				// 変更した速度に合わせて予測位置を再計算
-				particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
-				particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
-			}
-			// 右のふち付近で、右（外側）へ強く飛ぼうとしている場合
-			else if (particles_[i]->predictedPosition.x > cupRight &&
-				particles_[i]->predictedPosition.x < cupRight + 20.0f &&
-				particles_[i]->velocity.x > 0.0f) // 速度がプラス(右向き)の時だけ
-			{
-				particles_[i]->velocity.x *= 0.5f; // 横方向の勢いを50%カット
-				particles_[i]->velocity.y += 200.0f * deltaTime;
-
-				// 変更した速度に合わせて予測位置を再計算
-				particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
-				particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
-			}
-		}
 
 		// 速度を少し減衰させる
 		particles_[i]->velocity.x *= 0.98f;
@@ -492,6 +517,14 @@ void ParticleSystem::Update()
 
 			// 予測位置も制限された速度に合わせて再計算しておく
 			particles_[i]->predictedPosition.x = particles_[i]->position.x + particles_[i]->velocity.x * deltaTime;
+			particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
+		}
+
+		// 上方向(マイナスY方向)のみ、さらに厳しい制限をかける
+		float maxUpwardSpeed = -200.0f; // 負の値。0に近いほど上に飛ばなくなる
+		if (particles_[i]->velocity.y < maxUpwardSpeed)
+		{
+			particles_[i]->velocity.y = maxUpwardSpeed;
 			particles_[i]->predictedPosition.y = particles_[i]->position.y + particles_[i]->velocity.y * deltaTime;
 		}
 

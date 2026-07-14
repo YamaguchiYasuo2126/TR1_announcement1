@@ -108,180 +108,203 @@ void ParticleSystem::Update()
 	// 粒子同士の衝突解決(密度の計算と押し出し)
 	// PBF(流体)のパラメータ
 	// この値をいじるとドロドロ、サラサラなどの質感が変わる
-	float smoothingRadius = 30.0f;    // 粒子がお互いを認識する半径(カーネル半径)
+	float smoothingRadius = 32.0f;    // 粒子がお互いを認識する半径(カーネル半径)
 	float targetDensity = 26000.0f;  // 目標密度(この値に近づくように反発する)
 	float pressureMultiplier = 0.1f;  // 押し出す力の強さ
 	float smoothingRadiusSq = smoothingRadius * smoothingRadius;
 
-	// 密度の計算(グリッドを使用して周辺9マスを探索)
-	for (int i = 0; i < kMaxParticles; i++)
+
+	// イテレーション（反復計算）のループ
+	int pbfIterations = 3;
+	for (int iter = 0; iter < pbfIterations; iter++)
 	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
 
-		float density = 0.0f;
-		int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
-		int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
-
-		// 画面外クランプ
-		if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
-		if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
-
-		for (int offsetY = -1; offsetY <= 1; offsetY++) 
+		// 密度の計算(グリッドを使用して周辺9マスを探索)
+		for (int i = 0; i < kMaxParticles; i++)
 		{
-			for (int offsetX = -1; offsetX <= 1; offsetX++) 
+			if (particles_[i] == nullptr || !particles_[i]->isActive) continue;
+
+			float density = 0.0f;
+			int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
+			int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
+
+			// 画面外クランプ
+			if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
+			if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
+
+			for (int offsetY = -1; offsetY <= 1; offsetY++)
 			{
-				int targetGridX = myGridX + offsetX;
-				int targetGridY = myGridY + offsetY;
-				if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
-
-				for (int j : grid_[targetGridY * kGridWidth + targetGridX])
+				for (int offsetX = -1; offsetX <= 1; offsetX++)
 				{
-					if (particles_[j] == nullptr || !particles_[j]->isActive)
+					int targetGridX = myGridX + offsetX;
+					int targetGridY = myGridY + offsetY;
+					if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
+
+					for (int j : grid_[targetGridY * kGridWidth + targetGridX])
 					{
-						continue;
-					}
+						if (particles_[j] == nullptr || !particles_[j]->isActive)
+						{
+							continue;
+						}
 
-					float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
-					float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
-					float distSq = dx * dx + dy * dy;
+						float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
+						float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
 
-					// smoothingRadiusの範囲内にいる粒子だけを計算
-					if (distSq < smoothingRadiusSq)
-					{
-						float dist = sqrtf(distSq);
-						float influence = smoothingRadius - dist; // 近いほど値が大きくなる
+						float distSq = dx * dx + dy * dy;
 
-						// 影響度を3乗して密度に加算(中心に近いほど急激に密度が上がる)
-						density += influence * influence * influence;
+						// smoothingRadiusの範囲内にいる粒子だけを計算
+						if (distSq < smoothingRadiusSq)
+						{
+							float dist = sqrtf(distSq);
+							float influence = smoothingRadius - dist; // 近いほど値が大きくなる
+
+							// 影響度を3乗して密度に加算(中心に近いほど急激に密度が上がる)
+							density += influence * influence * influence;
+						}
 					}
 				}
 			}
-		}
-		// 自分の密度として保存
-		particles_[i]->density = density;
-	}
-
-
-	// 密度を元に「圧力」を計算し、予測位置を押し戻す
-	for (int i = 0; i < kMaxParticles; i++)
-	{
-		if (particles_[i] == nullptr || !particles_[i]->isActive)
-		{
-			continue;
+			// 自分の密度として保存
+			particles_[i]->density = density;
 		}
 
-		Vector2 pushVelocity = { 0.0f, 0.0f };
 
-		// 自分の圧力 = (現在の密度 - 目標密度) * 圧力係数
-		// 密度が目標より高ければプラス(反発)、低ければマイナス(引き合う)になる
-		float pressureI = (particles_[i]->density - targetDensity) * pressureMultiplier;
-
-		int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
-		int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
-		if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
-		if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
-
-		for (int offsetY = -1; offsetY <= 1; offsetY++)
+		// 密度を元に「圧力」を計算し、予測位置を押し戻す
+		for (int i = 0; i < kMaxParticles; i++)
 		{
-			for (int offsetX = -1; offsetX <= 1; offsetX++)
+			if (particles_[i] == nullptr || !particles_[i]->isActive)
 			{
-				int targetGridX = myGridX + offsetX;
-				int targetGridY = myGridY + offsetY;
-				if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
+				continue;
+			}
 
-				for (int j : grid_[targetGridY * kGridWidth + targetGridX])
+			Vector2 pushVelocity = { 0.0f, 0.0f };
+
+			// 自分の圧力 = (現在の密度 - 目標密度) * 圧力係数
+			// 密度が目標より高ければプラス(反発)、低ければマイナス(引き合う)になる
+			float pressureI = (particles_[i]->density - targetDensity) * pressureMultiplier;
+
+			int myGridX = static_cast<int>(particles_[i]->predictedPosition.x / kCellSize);
+			int myGridY = static_cast<int>(particles_[i]->predictedPosition.y / kCellSize);
+			if (myGridX < 0) myGridX = 0; if (myGridX >= kGridWidth) myGridX = kGridWidth - 1;
+			if (myGridY < 0) myGridY = 0; if (myGridY >= kGridHeight) myGridY = kGridHeight - 1;
+
+			for (int offsetY = -1; offsetY <= 1; offsetY++)
+			{
+				for (int offsetX = -1; offsetX <= 1; offsetX++)
 				{
-					if (i == j)
-					{
-						continue; // 自分自身は弾かない
-					}
+					int targetGridX = myGridX + offsetX;
+					int targetGridY = myGridY + offsetY;
+					if (targetGridX < 0 || targetGridX >= kGridWidth || targetGridY < 0 || targetGridY >= kGridHeight) continue;
 
-					if (particles_[j] == nullptr || !particles_[j]->isActive)
+					for (int j : grid_[targetGridY * kGridWidth + targetGridX])
 					{
-						continue;
-					}
-
-					float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
-					float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
-					float distSq = dx * dx + dy * dy;
-
-					if (distSq < smoothingRadius * smoothingRadius)
-					{
-						float dist = sqrtf(distSq);
-						if (dist < 0.0001f)
+						if (i == j)
 						{
-							continue; // 完全に重なっている場合のゼロ除算を回避
+							continue; // 自分自身は弾かない
 						}
 
-						// 相手の圧力
-						float pressureJ = (particles_[j]->density - targetDensity) * pressureMultiplier;
-
-						// お互いの圧力を平均化する(作用・反作用の法則)
-						float sharedPressure = (pressureI + pressureJ) * 0.5f;
-
-						// 爆発を防ぐため、圧力の計算結果は「押し出し(プラス)」のみに制限する
-						if (sharedPressure < 0.0f)
+						if (particles_[j] == nullptr || !particles_[j]->isActive)
 						{
-							sharedPressure = 0.0f;
+							continue;
 						}
 
-						// 押し出す強さの計算(近いほど強く押し出す)
-						float influence = smoothingRadius - dist;
-						float pushForce = sharedPressure * (influence * influence) / particles_[j]->density;
+						float dx = particles_[i]->predictedPosition.x - particles_[j]->predictedPosition.x;
+						float dy = particles_[i]->predictedPosition.y - particles_[j]->predictedPosition.y;
+						float distSq = dx * dx + dy * dy;
 
-						// 表面張力(引力)の追加
-						float tensionForce = 0.0f;
-						float r = particles_[i]->radius;
-
-						// 表面張力の強さ
-						// 大きくするほど強くまとまり「スライム」や「水銀」のようになる
-						float tensionStrength = 0.1f;
-
-						// 粒子がめり込んでいる時は反発を優先し、
-						// 「半径(r)よりは離れているが、影響半径(smoothingRadius)の範囲内にいる」時だけ引き合う
-						if (dist > r && dist < smoothingRadius)
+						if (distSq < smoothingRadius * smoothingRadius)
 						{
-							// 引力として働くようにマイナスの値にする
-							tensionForce = -tensionStrength * influence;
+							float dist = sqrtf(distSq);
+							if (dist < 0.0001f)
+							{
+								continue; // 完全に重なっている場合のゼロ除算を回避
+							}
+
+							// 相手の圧力
+							float pressureJ = (particles_[j]->density - targetDensity) * pressureMultiplier;
+
+							// お互いの圧力を平均化する(作用・反作用の法則)
+							float sharedPressure = (pressureI + pressureJ) * 0.5f;
+
+							// 爆発を防ぐため、圧力の計算結果は「押し出し(プラス)」のみに制限する
+							if (sharedPressure < 0.0f)
+							{
+								sharedPressure = 0.0f;
+							}
+
+							// 押し出す強さの計算(近いほど強く押し出す)
+							float influence = smoothingRadius - dist;
+							float pushForce = sharedPressure * (influence * influence) / particles_[j]->density;
+
+							// 表面張力(引力)の追加
+							float tensionForce = 0.0f;
+							float r = particles_[i]->radius;
+
+							// 表面張力の強さ
+							// 大きくするほど強くまとまり「スライム」や「水銀」のようになる
+							float tensionStrength = 0.05f;
+
+							// 粒子がめり込んでいる時は反発を優先し、
+							// 「半径(r)よりは離れているが、影響半径(smoothingRadius)の範囲内にいる」時だけ引き合う
+							if (dist > r && dist < smoothingRadius)
+							{
+								// 引力として働くようにマイナスの値にする
+								tensionForce = -tensionStrength * influence;
+							}
+
+							// 最終的な移動力の決定
+							// 反発力（＋）と 表面張力（－）を合算する
+							float totalForce = pushForce + tensionForce;
+
+							// 距離ベクトルを正規化して力を掛け、移動量に足し込む
+							pushVelocity.x += (dx / dist) * totalForce;
+							pushVelocity.y += (dy / dist) * totalForce;
 						}
-
-						// 最終的な移動力の決定
-						// 反発力（＋）と 表面張力（－）を合算する
-						float totalForce = pushForce + tensionForce;
-
-						// 距離ベクトルを正規化して力を掛け、移動量に足し込む
-						pushVelocity.x += (dx / dist) * totalForce;
-						pushVelocity.y += (dy / dist) * totalForce;
 					}
 				}
 			}
+
+			// 自分がスリープ状態なら、周囲からの反発力をゼロにする
+			if (particles_[i]->isSleeping)
+			{
+				// 計算された反発力(pushVelocity)の大きさを確認
+				float pushSq = pushVelocity.x * pushVelocity.x + pushVelocity.y * pushVelocity.y;
+
+				// 目を覚ます力の閾値（衝撃への敏感さ）
+				float wakeUpThreshold = 100.0f;
+
+				if (pushSq > wakeUpThreshold * wakeUpThreshold)
+				{
+					// 強い力（衝撃）を受けたので目を覚ます
+					particles_[i]->isSleeping = false;
+					particles_[i]->restTime = 0.0f;
+				}
+				else
+				{
+					// 力が弱ければ、そのまま静止し続ける
+					pushVelocity = { 0.0f, 0.0f };
+				}
+			}
+
+			// 計算した反発力を使って、予測位置をずらす
+			float moveX = pushVelocity.x * deltaTime;
+			float moveY = pushVelocity.y * deltaTime;
+
+			// 1回の計算での最大移動量を制限（爆発防止リミッター）
+			float maxMove = 2.5f;
+			float moveSq = moveX * moveX + moveY * moveY;
+
+			if (moveSq > maxMove * maxMove)
+			{
+				float moveDist = sqrtf(moveSq);
+				moveX = (moveX / moveDist) * maxMove;
+				moveY = (moveY / moveDist) * maxMove;
+			}
+
+			particles_[i]->predictedPosition.x += moveX;
+			particles_[i]->predictedPosition.y += moveY;
 		}
 
-		// 自分がスリープ状態なら、周囲からの反発力をゼロにする
-		if (particles_[i]->isSleeping)
-		{
-			// 計算された反発力(pushVelocity)の大きさを確認
-			float pushSq = pushVelocity.x * pushVelocity.x + pushVelocity.y * pushVelocity.y;
-
-			// 目を覚ます力の閾値（衝撃への敏感さ）
-			float wakeUpThreshold = 100.0f;
-
-			if (pushSq > wakeUpThreshold * wakeUpThreshold)
-			{
-				// 強い力（衝撃）を受けたので目を覚ます
-				particles_[i]->isSleeping = false;
-				particles_[i]->restTime = 0.0f;
-			}
-			else
-			{
-				// 力が弱ければ、そのまま静止し続ける
-				pushVelocity = { 0.0f, 0.0f };
-			}
-		}
-
-		// 計算した反発力を使って、予測位置をずらす
-		particles_[i]->predictedPosition.x += pushVelocity.x * deltaTime;
-		particles_[i]->predictedPosition.y += pushVelocity.y * deltaTime;
 	}
 
 	// 境界(コップ)との当たり判定（ローカル座標系への変換）
@@ -487,6 +510,7 @@ void ParticleSystem::Update()
 		}
 	}
 
+
 	// 速度の再計算と位置の確定
 	for (int i = 0; i < kMaxParticles; i++)
 	{
@@ -500,8 +524,8 @@ void ParticleSystem::Update()
 		particles_[i]->velocity.y = (particles_[i]->predictedPosition.y - particles_[i]->position.y) / deltaTime;
 
 		// 速度を少し減衰させる
-		particles_[i]->velocity.x *= 0.98f;
-		particles_[i]->velocity.y *= 0.98f;
+		particles_[i]->velocity.x *= 0.998f;
+		particles_[i]->velocity.y *= 0.998f;
 
 		// 速度リミッター(異常な吹き飛びを防止)
 		float maxSpeed = 800.0f;
